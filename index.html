@@ -1,38 +1,780 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GRT Courier Manager</title>
+    
+    <!-- 1. STYLES (Tailwind CSS) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    
+    <!-- 2. LIBRARIES (CDN) -->
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- CSV Parser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- PDF Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Barcode Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+
     <style>
-      body {
-        font-family: 'Inter', sans-serif;
-      }
-      h1, h2, h3, .brand-font {
-        font-family: 'Playfair Display', serif;
-      }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .brand-font { font-family: 'Playfair Display', serif; }
+        .hidden { display: none !important; }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #78350f;
+            width: 20px;
+            height: 20px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "jszip": "https://esm.sh/jszip@^3.10.1",
+    "papaparse": "https://esm.sh/papaparse@^5.5.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "file-saver": "https://esm.sh/file-saver@^2.0.5",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
     "jspdf": "https://esm.sh/jspdf@^3.0.4",
-    "papaparse": "https://esm.sh/papaparse@^5.5.3",
-    "jsbarcode": "https://esm.sh/jsbarcode@^3.11.6"
+    "jsbarcode": "https://esm.sh/jsbarcode@^3.12.1"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-gray-50 text-gray-900 antialiased">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<body class="bg-gray-50 text-gray-900 antialiased min-h-screen flex flex-col">
+
+    <!-- ================= HEADER ================= -->
+    <header class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <span class="text-2xl font-serif font-bold text-amber-900 tracking-wider">GRT</span>
+                    <span class="ml-2 text-sm text-gray-500 uppercase tracking-widest hidden sm:block">Jewellers | Courier Ops</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="app.openSettings()" class="p-2 text-gray-400 hover:text-gray-600 transition" title="Settings">
+                        <i data-lucide="settings" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================= MAIN CONTENT ================= -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Navigation Tabs (Only shown if configured) -->
+        <div id="nav-tabs" class="flex space-x-4 mb-8 hidden">
+            <button id="tab-dashboard" onclick="app.switchTab('dashboard')" class="flex items-center px-4 py-2 rounded-md font-medium transition bg-amber-100 text-amber-900">
+                <i data-lucide="list" class="w-5 h-5 mr-2"></i> Orders Dashboard
+            </button>
+            <button id="tab-new-order" onclick="app.switchTab('new_order')" class="flex items-center px-4 py-2 rounded-md font-medium transition text-gray-600 hover:bg-gray-100">
+                <i data-lucide="plus-circle" class="w-5 h-5 mr-2"></i> New Order
+            </button>
+        </div>
+
+        <!-- VIEW: UNCONFIGURED -->
+        <div id="view-unconfigured" class="flex flex-col items-center justify-center h-64 text-center p-8 bg-white rounded-lg shadow border border-red-100 hidden">
+            <i data-lucide="shield-alert" class="w-16 h-16 text-amber-700 mb-4"></i>
+            <h2 class="text-xl font-bold text-gray-800 mb-2">Configuration Required</h2>
+            <p class="text-gray-600 mb-4">Please configure your GitHub Repository settings to start managing orders.</p>
+            <button onclick="app.openSettings()" class="px-4 py-2 bg-amber-900 text-white rounded hover:bg-amber-800 transition">
+                Open Settings
+            </button>
+        </div>
+
+        <!-- VIEW: DASHBOARD -->
+        <div id="view-dashboard" class="space-y-6 hidden">
+            <!-- Actions Bar -->
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <h2 class="text-2xl font-serif text-gray-800">Dashboard</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <!-- Hidden File Input -->
+                        <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="app.handleFileUpload(this)">
+                        
+                        <button onclick="app.downloadTemplate()" class="flex items-center px-4 py-2 rounded-md font-medium text-amber-900 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition">
+                            <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Template
+                        </button>
+
+                        <button onclick="document.getElementById('csvFileInput').click()" id="btn-upload" class="flex items-center px-4 py-2 rounded-md font-medium text-white bg-green-700 hover:bg-green-800 transition">
+                            <i data-lucide="upload" class="w-4 h-4 mr-2"></i> Bulk Upload
+                        </button>
+
+                        <button onclick="app.downloadSelectedPDF()" id="btn-download-pdf" class="flex items-center px-4 py-2 rounded-md font-medium text-white bg-gray-400 cursor-not-allowed transition" disabled>
+                            <i data-lucide="download" class="w-4 h-4 mr-2"></i> Download PDF
+                        </button>
+
+                        <button onclick="app.fetchData()" class="p-2 text-gray-600 hover:text-amber-800 hover:bg-gray-100 rounded-full transition border border-gray-200">
+                            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+                    <input type="text" id="filter-search" placeholder="Search ID, Name..." oninput="app.applyFilters()" class="block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                    <input type="text" id="filter-batch" placeholder="Filter Batch ID" oninput="app.applyFilters()" class="block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                    <input type="date" id="filter-date-start" onchange="app.applyFilters()" class="block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                    <input type="date" id="filter-date-end" onchange="app.applyFilters()" class="block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                </div>
+            </div>
+
+            <!-- Messages -->
+            <div id="dashboard-msg" class="hidden p-4 rounded-md border-l-4"></div>
+
+            <!-- Table -->
+            <div class="bg-white shadow-md rounded-lg overflow-hidden border border-gray-200">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 w-10"><input type="checkbox" id="select-all" onclick="app.toggleSelectAll()" class="h-4 w-4 text-amber-900 border-gray-300 rounded"></th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Batch ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receiver</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">City</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: NEW ORDER FORM -->
+        <div id="view-new-order" class="max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden border border-gray-200 hidden">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-serif font-medium text-gray-900 flex items-center">
+                    <i data-lucide="package" class="mr-2 h-5 w-5 text-amber-800"></i> New Courier Order
+                </h3>
+            </div>
+            <form id="new-order-form" onsubmit="app.handleNewOrder(event)" class="p-6">
+                <div id="form-msg" class="hidden mb-4 p-4 rounded-md border-l-4"></div>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Order ID</label>
+                        <input type="text" name="orderId" required placeholder="Enter Order ID" class="mt-1 block w-full md:w-1/2 rounded-md border-gray-300 shadow-sm border p-2">
+                    </div>
+                    <div class="border-t border-gray-200 pt-4"></div>
+                    <div class="space-y-4">
+                        <h4 class="font-medium text-gray-500 pb-2 flex items-center"><i data-lucide="map-pin" class="w-4 h-4 mr-2"></i> Receiver Details</h4>
+                        <div><label class="block text-sm font-medium text-gray-700">Name</label><input type="text" name="receiverName" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                        <div><label class="block text-sm font-medium text-gray-700">Address Line 1</label><input type="text" name="receiverAddress" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-medium text-gray-700">City</label><input type="text" name="city" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                            <div><label class="block text-sm font-medium text-gray-700">State</label><input type="text" name="state" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-medium text-gray-700">Pincode</label><input type="text" name="pincode" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                            <div><label class="block text-sm font-medium text-gray-700">Mobile</label><input type="text" name="mobile" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 flex justify-end">
+                    <button type="submit" id="btn-save-order" class="flex items-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-amber-900 hover:bg-amber-800">
+                        <i data-lucide="truck" class="mr-2 h-5 w-5"></i> Generate Order & Save
+                    </button>
+                </div>
+            </form>
+        </div>
+
+    </main>
+
+    <!-- ================= FOOTER ================= -->
+    <footer class="bg-white border-t border-gray-200 py-6 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-400">
+            <p>© 2024 GRT Jewellers. Internal Use Only.</p>
+            <p class="mt-1 text-xs">Securely connected to GitHub.</p>
+        </div>
+    </footer>
+
+    <!-- ================= MODAL: SETTINGS ================= -->
+    <div id="modal-settings" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div class="bg-amber-900 px-6 py-4 flex justify-between items-center">
+                <h2 class="text-white text-xl font-serif">Configuration</h2>
+            </div>
+            <form onsubmit="app.saveSettings(event)" class="p-6 space-y-4">
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+                    <div class="flex">
+                        <i data-lucide="alert-triangle" class="h-5 w-5 text-yellow-400 mr-2"></i>
+                        <p class="text-sm text-yellow-700">Tokens stored in browser LocalStorage. Use fine-grained token.</p>
+                    </div>
+                </div>
+                <div><label class="block text-sm font-medium text-gray-700">GitHub Token</label><input type="password" id="set-token" required class="mt-1 block w-full rounded-md border border-gray-300 p-2"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-700">Repo Owner</label><input type="text" id="set-owner" required class="mt-1 block w-full rounded-md border border-gray-300 p-2"></div>
+                    <div><label class="block text-sm font-medium text-gray-700">Repo Name</label><input type="text" id="set-name" required class="mt-1 block w-full rounded-md border border-gray-300 p-2"></div>
+                </div>
+                <div><label class="block text-sm font-medium text-gray-700">CSV Filename</label><input type="text" id="set-path" value="orders.csv" required class="mt-1 block w-full rounded-md border border-gray-300 p-2"></div>
+                <div class="flex justify-end pt-4">
+                    <button type="button" onclick="app.closeSettings()" class="mr-3 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+                    <button type="submit" class="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-amber-900 rounded-md hover:bg-amber-800">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= LOGIC ================= -->
+    <script>
+        // --- CONSTANTS & CONFIG ---
+        const BRAND_CONFIG = {
+            name: "GRT Jewellers - Ecommerce",
+            logoUrl: "https://media.grtjewels.com/themecollection/tmp/image/GRT_Logo_6.png",
+            address: "7, Rangan St, Postal Colony, T. Nagar, Chennai, Tamil Nadu 600017",
+            contact: "Contact No : 044 2435 4977 / +91-7358251515"
+        };
+        const CSV_HEADERS = ["OrderID","Timestamp","SenderName","SenderAddress","ReceiverName","ReceiverAddress","Mobile","Pincode","City","State","Courier","Status","BatchID"];
+
+        // --- APP STATE ---
+        const app = {
+            state: {
+                settings: { githubToken: "", repoOwner: "", repoName: "", csvPath: "orders.csv" },
+                orders: [],
+                filteredOrders: [],
+                selectedOrders: new Set(),
+                isConfigured: false,
+                loading: false
+            },
+
+            // --- INIT ---
+            init: function() {
+                const saved = localStorage.getItem('grt_courier_settings');
+                if (saved) {
+                    this.state.settings = JSON.parse(saved);
+                    if (this.state.settings.githubToken) this.state.isConfigured = true;
+                }
+
+                if (this.state.isConfigured) {
+                    this.switchTab('dashboard');
+                    this.fetchData();
+                } else {
+                    document.getElementById('view-unconfigured').classList.remove('hidden');
+                }
+                lucide.createIcons();
+            },
+
+            // --- UI HELPERS ---
+            switchTab: function(tabName) {
+                if (!this.state.isConfigured) return;
+                
+                // Hide all views
+                document.getElementById('view-unconfigured').classList.add('hidden');
+                document.getElementById('view-dashboard').classList.add('hidden');
+                document.getElementById('view-new-order').classList.add('hidden');
+                
+                // Reset Tab Styles
+                const tDash = document.getElementById('tab-dashboard');
+                const tNew = document.getElementById('tab-new-order');
+                tDash.className = "flex items-center px-4 py-2 rounded-md font-medium transition text-gray-600 hover:bg-gray-100";
+                tNew.className = "flex items-center px-4 py-2 rounded-md font-medium transition text-gray-600 hover:bg-gray-100";
+
+                document.getElementById('nav-tabs').classList.remove('hidden');
+
+                if (tabName === 'dashboard') {
+                    document.getElementById('view-dashboard').classList.remove('hidden');
+                    tDash.className = "flex items-center px-4 py-2 rounded-md font-medium transition bg-amber-100 text-amber-900";
+                } else if (tabName === 'new_order') {
+                    document.getElementById('view-new-order').classList.remove('hidden');
+                    tNew.className = "flex items-center px-4 py-2 rounded-md font-medium transition bg-amber-100 text-amber-900";
+                }
+                lucide.createIcons();
+            },
+
+            openSettings: function() {
+                document.getElementById('set-token').value = this.state.settings.githubToken || "";
+                document.getElementById('set-owner').value = this.state.settings.repoOwner || "";
+                document.getElementById('set-name').value = this.state.settings.repoName || "";
+                document.getElementById('set-path').value = this.state.settings.csvPath || "orders.csv";
+                document.getElementById('modal-settings').classList.remove('hidden');
+            },
+
+            closeSettings: function() {
+                document.getElementById('modal-settings').classList.add('hidden');
+            },
+
+            saveSettings: function(e) {
+                e.preventDefault();
+                const newSettings = {
+                    githubToken: document.getElementById('set-token').value,
+                    repoOwner: document.getElementById('set-owner').value,
+                    repoName: document.getElementById('set-name').value,
+                    csvPath: document.getElementById('set-path').value
+                };
+                this.state.settings = newSettings;
+                localStorage.setItem('grt_courier_settings', JSON.stringify(newSettings));
+                this.state.isConfigured = true;
+                this.closeSettings();
+                this.switchTab('dashboard');
+                this.fetchData();
+            },
+
+            // --- GITHUB API ---
+            fetchData: async function() {
+                this.state.loading = true;
+                this.renderTable(); // Show loading state inside table if possible or just clear
+                
+                try {
+                    const s = this.state.settings;
+                    const url = `https://api.github.com/repos/${s.repoOwner}/${s.repoName}/contents/${s.csvPath}`;
+                    
+                    const response = await fetch(url, {
+                        headers: { Authorization: `Bearer ${s.githubToken}`, Accept: "application/vnd.github.v3+json" },
+                        cache: "no-store"
+                    });
+
+                    if (response.status === 404) {
+                        this.state.orders = [];
+                    } else if (response.ok) {
+                        const data = await response.json();
+                        // Decode Base64
+                        const csvContent = decodeURIComponent(escape(window.atob(data.content.replace(/\n/g, ""))));
+                        // Parse CSV
+                        const parsed = Papa.parse(csvContent, { header: true, skipEmptyLines: true });
+                        this.state.orders = parsed.data.map(r => ({
+                            orderId: r.OrderID,
+                            timestamp: r.Timestamp,
+                            senderName: r.SenderName,
+                            senderAddress: r.SenderAddress,
+                            receiverName: r.ReceiverName,
+                            receiverAddress: r.ReceiverAddress,
+                            mobile: r.Mobile,
+                            pincode: r.Pincode,
+                            city: r.City,
+                            state: r.State,
+                            courier: r.Courier,
+                            status: r.Status,
+                            batchId: r.BatchID || ''
+                        })).reverse(); // Newest first
+                    } else {
+                        throw new Error("GitHub API Error: " + response.statusText);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.showMessage('dashboard', 'error', e.message);
+                } finally {
+                    this.state.loading = false;
+                    this.state.selectedOrders.clear();
+                    this.applyFilters();
+                }
+            },
+
+            updateGitHub: async function(csvString, message) {
+                const s = this.state.settings;
+                // Get current SHA first
+                const getUrl = `https://api.github.com/repos/${s.repoOwner}/${s.repoName}/contents/${s.csvPath}`;
+                const getRes = await fetch(getUrl, { 
+                    headers: { Authorization: `Bearer ${s.githubToken}` }, cache: "no-store" 
+                });
+                
+                let sha = null;
+                if (getRes.ok) {
+                    const json = await getRes.json();
+                    sha = json.sha;
+                }
+
+                // Encode content
+                const encoded = btoa(unescape(encodeURIComponent(csvString)));
+                
+                const putRes = await fetch(getUrl, {
+                    method: 'PUT',
+                    headers: { 
+                        Authorization: `Bearer ${s.githubToken}`, 
+                        Accept: "application/vnd.github.v3+json",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ message: message, content: encoded, sha: sha })
+                });
+
+                if (!putRes.ok) throw new Error("Failed to save to GitHub");
+            },
+
+            // --- DATA LOGIC ---
+            applyFilters: function() {
+                const q = document.getElementById('filter-search').value.toLowerCase();
+                const b = document.getElementById('filter-batch').value.toLowerCase();
+                const dStart = document.getElementById('filter-date-start').value;
+                const dEnd = document.getElementById('filter-date-end').value;
+
+                this.state.filteredOrders = this.state.orders.filter(o => {
+                    const matchesSearch = !q || (o.orderId && o.orderId.toLowerCase().includes(q)) || (o.receiverName && o.receiverName.toLowerCase().includes(q));
+                    const matchesBatch = !b || (o.batchId && o.batchId.toLowerCase().includes(b));
+                    const matchesStart = !dStart || o.timestamp >= dStart;
+                    const matchesEnd = !dEnd || o.timestamp <= dEnd;
+                    return matchesSearch && matchesBatch && matchesStart && matchesEnd;
+                });
+                this.renderTable();
+            },
+
+            renderTable: function() {
+                const tbody = document.getElementById('orders-table-body');
+                tbody.innerHTML = '';
+
+                if (this.state.loading) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 text-center">Loading...</td></tr>`;
+                    return;
+                }
+
+                if (this.state.filteredOrders.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">No orders found.</td></tr>`;
+                    return;
+                }
+
+                this.state.filteredOrders.forEach(order => {
+                    const isSel = this.state.selectedOrders.has(order.orderId);
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50 transition";
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <input type="checkbox" onchange="app.toggleSelect('${order.orderId}')" ${isSel ? 'checked' : ''} class="h-4 w-4 text-amber-900 border-gray-300 rounded">
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${order.orderId}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.timestamp}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono">${order.batchId}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.receiverName}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${order.city}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="app.viewSinglePDF('${order.orderId}')" class="text-amber-900 hover:text-amber-700 flex items-center">
+                                <i data-lucide="eye" class="w-4 h-4 mr-1"></i> PDF
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                lucide.createIcons();
+                this.updateActionButtons();
+            },
+
+            // --- SELECTION ---
+            toggleSelect: function(id) {
+                if (this.state.selectedOrders.has(id)) this.state.selectedOrders.delete(id);
+                else this.state.selectedOrders.add(id);
+                this.updateActionButtons();
+            },
+
+            toggleSelectAll: function() {
+                const allSelected = this.state.filteredOrders.length > 0 && this.state.selectedOrders.size === this.state.filteredOrders.length;
+                if (allSelected) {
+                    this.state.selectedOrders.clear();
+                } else {
+                    this.state.selectedOrders = new Set(this.state.filteredOrders.map(o => o.orderId));
+                }
+                this.applyFilters(); // Re-renders table with checkboxes
+            },
+
+            updateActionButtons: function() {
+                const btn = document.getElementById('btn-download-pdf');
+                if (this.state.selectedOrders.size > 0) {
+                    btn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                    btn.classList.add('bg-amber-900', 'hover:bg-amber-800');
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="download" class="w-4 h-4 mr-2"></i> Download PDF (${this.state.selectedOrders.size})`;
+                } else {
+                    btn.classList.add('bg-gray-400', 'cursor-not-allowed');
+                    btn.classList.remove('bg-amber-900', 'hover:bg-amber-800');
+                    btn.disabled = true;
+                    btn.innerHTML = `<i data-lucide="download" class="w-4 h-4 mr-2"></i> Download PDF`;
+                }
+                lucide.createIcons();
+            },
+
+            // --- PDF GENERATION ---
+            generateBarcodeBase64: function(text) {
+                const canvas = document.createElement("canvas");
+                JsBarcode(canvas, text, { format: "CODE128", lineColor: "#000", width: 2, height: 40, displayValue: true, fontSize: 14, margin: 0 });
+                return canvas.toDataURL("image/png");
+            },
+
+            fetchLogo: async function() {
+                try {
+                    const res = await fetch(BRAND_CONFIG.logoUrl);
+                    const blob = await res.blob();
+                    return new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
+                } catch(e) { return null; }
+            },
+
+            generatePDF: async function(ordersList) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const logo = await this.fetchLogo();
+                
+                ordersList.forEach((order, index) => {
+                    if (index > 0 && index % 4 === 0) doc.addPage();
+                    
+                    const startY = (index % 4) * (297 / 4);
+                    const leftX = 12;
+                    const rightX = 110;
+                    
+                    // Header
+                    doc.setFontSize(10);
+                    doc.text(`Order Id : ${order.orderId}`, leftX, startY + 12);
+                    doc.text(`Date: ${order.timestamp}`, leftX, startY + 17);
+                    
+                    // Barcode
+                    doc.addImage(this.generateBarcodeBase64(order.orderId), 'PNG', 210 - 12 - 45, startY + 6, 45, 12);
+
+                    // From
+                    let ly = startY + 28;
+                    doc.setFontSize(11); doc.setFont("helvetica", "bold");
+                    doc.text("From;", leftX, ly); ly+=5;
+                    
+                    if(logo) { doc.addImage(logo, 'PNG', leftX, ly, 30, 10); ly+=13; }
+                    
+                    doc.setFontSize(10);
+                    doc.text(BRAND_CONFIG.name, leftX, ly); ly+=4;
+                    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+                    
+                    const addrParts = BRAND_CONFIG.address.split(", Chennai");
+                    doc.text(addrParts[0] + ",", leftX, ly); ly+=4;
+                    if(addrParts[1]) { doc.text("Chennai" + addrParts[1], leftX, ly); ly+=4; }
+                    doc.text(BRAND_CONFIG.contact, leftX, ly);
+
+                    // To
+                    let ry = startY + 28;
+                    doc.setFontSize(11); doc.setFont("helvetica", "bold");
+                    doc.text("To;", rightX, ry); ry+=5;
+                    doc.setFontSize(10);
+                    doc.text(order.receiverName, rightX, ry); ry+=4;
+                    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+                    
+                    const rAddr = doc.splitTextToSize(order.receiverAddress, 85);
+                    doc.text(rAddr, rightX, ry);
+                    ry += (rAddr.length * 3.5) + 1;
+                    
+                    doc.text(`${order.city}, ${order.state} ${order.pincode}`, rightX, ry); ry+=4;
+                    doc.text(`Contact No : ${order.mobile}`, rightX, ry);
+
+                    // Divider
+                    const slotBottom = startY + 74;
+                    doc.setDrawColor(200); doc.setLineDash([3, 3]);
+                    doc.line(12, slotBottom, 198, slotBottom);
+                    doc.setLineDash([]); doc.setDrawColor(0);
+                });
+                
+                return doc;
+            },
+
+            downloadSelectedPDF: async function() {
+                const list = this.state.orders.filter(o => this.state.selectedOrders.has(o.orderId));
+                if(list.length === 0) return;
+                
+                const btn = document.getElementById('btn-download-pdf');
+                btn.innerHTML = 'Generating...';
+                
+                const doc = await this.generatePDF(list);
+                doc.save(`courier_orders.pdf`);
+                
+                this.updateActionButtons();
+            },
+
+            viewSinglePDF: async function(id) {
+                const order = this.state.orders.find(o => o.orderId === id);
+                if(order) {
+                    const doc = await this.generatePDF([order]);
+                    window.open(doc.output('bloburl'), '_blank');
+                }
+            },
+
+            // --- BULK UPLOAD ---
+            downloadTemplate: function() {
+                const csv = "OrderID,ReceiverName,ReceiverAddress,City,State,Pincode,Mobile\n1001010,Soundhar,\"18/36, madley 2nd street\",chennai,Tamil Nadu,600017,6380509338";
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "bulk_upload_template.csv";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            },
+
+            handleFileUpload: function(input) {
+                const file = input.files[0];
+                if (!file) return;
+                
+                const btn = document.getElementById('btn-upload');
+                const origText = btn.innerHTML;
+                btn.innerHTML = "Uploading...";
+                btn.disabled = true;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const newRaw = Papa.parse(e.target.result, {header:true, skipEmptyLines:true}).data;
+                        if(newRaw.length === 0) throw new Error("Empty CSV");
+
+                        const batchId = this.generateBatchId();
+                        const now = new Date().toISOString().split('T')[0];
+
+                        // Process new
+                        const processed = newRaw.map(o => ({
+                            orderId: o.OrderID,
+                            timestamp: o.Timestamp || now,
+                            senderName: o.SenderName || BRAND_CONFIG.name,
+                            senderAddress: o.SenderAddress || `${BRAND_CONFIG.address} | ${BRAND_CONFIG.contact}`,
+                            receiverName: o.ReceiverName,
+                            receiverAddress: o.ReceiverAddress,
+                            mobile: o.Mobile,
+                            pincode: o.Pincode,
+                            city: o.City,
+                            state: o.State,
+                            courier: o.Courier || "GRT Logistics",
+                            status: o.Status || "Created",
+                            batchId: batchId
+                        }));
+
+                        // Merge
+                        const merged = this.mergeOrders(this.state.orders.slice().reverse(), processed); // Pass existing in chronological order if needed, but merge handles IDs
+                        
+                        if(merged.added === 0) {
+                            this.showMessage('dashboard', 'info', `No new orders added. ${merged.skipped} duplicates skipped.`);
+                        } else {
+                            // CSV String
+                            const csvData = Papa.unparse({
+                                fields: CSV_HEADERS,
+                                data: merged.list.map(o => ({
+                                    OrderID: o.orderId, Timestamp: o.timestamp, SenderName: o.senderName, SenderAddress: o.senderAddress,
+                                    ReceiverName: o.receiverName, ReceiverAddress: o.receiverAddress, Mobile: o.mobile, Pincode: o.pincode,
+                                    City: o.city, State: o.state, Courier: o.courier, Status: o.status, BatchID: o.batchId
+                                }))
+                            });
+                            
+                            await this.updateGitHub(csvData, `Bulk Upload Batch ${batchId}`);
+                            this.showMessage('dashboard', 'success', `Added ${merged.added} orders! (Batch: ${batchId}, Skipped: ${merged.skipped})`);
+                            this.fetchData();
+                        }
+
+                    } catch(err) {
+                        console.error(err);
+                        this.showMessage('dashboard', 'error', err.message);
+                    } finally {
+                        btn.innerHTML = origText;
+                        btn.disabled = false;
+                        input.value = '';
+                    }
+                };
+                reader.readAsText(file);
+            },
+
+            mergeOrders: function(existing, incoming) {
+                const existingIds = new Set(existing.map(o => o.orderId));
+                const seenInBatch = new Set();
+                const toAdd = [];
+                let skipped = 0;
+
+                incoming.forEach(o => {
+                    if(!o.orderId) return;
+                    if(existingIds.has(o.orderId) || seenInBatch.has(o.orderId)) {
+                        skipped++;
+                    } else {
+                        seenInBatch.add(o.orderId);
+                        toAdd.push(o);
+                    }
+                });
+                return { list: [...existing, ...toAdd], added: toAdd.length, skipped: skipped };
+            },
+
+            generateBatchId: function() {
+                let max = 0;
+                this.state.orders.forEach(o => {
+                    if(o.batchId && o.batchId.startsWith('B')) {
+                        const num = parseInt(o.batchId.substring(1));
+                        if(!isNaN(num) && num > max) max = num;
+                    }
+                });
+                return `B${String(max+1).padStart(3, '0')}`;
+            },
+
+            // --- NEW ORDER ---
+            handleNewOrder: async function(e) {
+                e.preventDefault();
+                const btn = document.getElementById('btn-save-order');
+                btn.disabled = true;
+                btn.innerHTML = 'Saving...';
+
+                try {
+                    const fd = new FormData(e.target);
+                    const newId = fd.get('orderId');
+
+                    if(this.state.orders.some(o => o.orderId === newId)) throw new Error("Order ID already exists");
+
+                    const batchId = this.generateBatchId();
+                    const now = new Date().toISOString().split('T')[0];
+
+                    const newOrder = {
+                        orderId: newId,
+                        timestamp: now,
+                        senderName: BRAND_CONFIG.name,
+                        senderAddress: `${BRAND_CONFIG.address} | ${BRAND_CONFIG.contact}`,
+                        receiverName: fd.get('receiverName'),
+                        receiverAddress: fd.get('receiverAddress'),
+                        mobile: fd.get('mobile'),
+                        pincode: fd.get('pincode'),
+                        city: fd.get('city'),
+                        state: fd.get('state'),
+                        courier: "GRT Logistics",
+                        status: "Created",
+                        batchId: batchId
+                    };
+
+                    const updatedList = [...this.state.orders.slice().reverse(), newOrder]; // Append to end (chronological)
+                    
+                    const csvData = Papa.unparse({
+                        fields: CSV_HEADERS,
+                        data: updatedList.map(o => ({
+                            OrderID: o.orderId, Timestamp: o.timestamp, SenderName: o.senderName, SenderAddress: o.senderAddress,
+                            ReceiverName: o.receiverName, ReceiverAddress: o.receiverAddress, Mobile: o.mobile, Pincode: o.pincode,
+                            City: o.city, State: o.state, Courier: o.courier, Status: o.status, BatchID: o.batchId
+                        }))
+                    });
+
+                    await this.updateGitHub(csvData, `Add Order ${newId}`);
+                    
+                    this.showMessage('form', 'success', `Order ${newId} Saved!`);
+                    e.target.reset();
+                    this.fetchData(); // Refresh data
+
+                } catch(err) {
+                    this.showMessage('form', 'error', err.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i data-lucide="truck" class="mr-2 h-5 w-5"></i> Generate Order & Save`;
+                    lucide.createIcons();
+                }
+            },
+
+            showMessage: function(loc, type, text) {
+                const el = document.getElementById(loc === 'dashboard' ? 'dashboard-msg' : 'form-msg');
+                el.className = `mb-4 p-4 rounded-md border-l-4 ${type === 'error' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-green-50 border-green-500 text-green-700'}`;
+                el.innerText = text;
+                el.classList.remove('hidden');
+                setTimeout(() => el.classList.add('hidden'), 5000);
+            }
+        };
+
+        // Start
+        window.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
 </html>
