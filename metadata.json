@@ -1,0 +1,5 @@
+{
+  "name": "GRT Courier Manager",
+  "description": "A frontend-only React application for managing courier orders, generating A3 PDF labels, and syncing data with GitHub CSV.",
+  "requestFramePermissions": []
+}
